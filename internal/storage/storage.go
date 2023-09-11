@@ -200,16 +200,26 @@ func ConnectToDb(conf *config.Config) (*sql.DB, error) {
 	return db, nil
 }
 
-func Insert(uid, jsonOrder string, db *sql.DB) error {
+func Insert(uid, order model.Order{}, db *sql.DB) error {
 	_, err := db.Exec(
-		"INSERT INTO orders_table (uid, json_order) VALUES ($1, $2 )", uid, jsonOrder)
+		"INSERT INTO orders (order_uid, track_number, entry, locale, internal_signature, customer_id, delivery_service,	shardkey, sm_id, date_created, oof_shard) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)", order.OrderUID, orderTrackNumber       string   `json:"track_number"`
+		Entry             string   `json:"entry"`
+		Delivery          Delivery `json:"delivery"`
+		Payment           Payment  `json:"payment"`
+		Items             []Item   `json:"items"`
+		Locale            string   `json:"locale"`
+		InternalSignature string   `json:"internal_signature"`
+		CustomerID        string   `json:"customer_id"`
+		DeliveryService   string   `json:"delivery_service"`
+		Shardkey          string   `json:"shardkey"`
+		SmID              int      `json:"sm_id"`
+		DateCreated       string   `json:"date_created"`
+		OofShard )
 	if err != nil {
 		return err
 	}
 	return nil
 }
-
-
 
 
 
