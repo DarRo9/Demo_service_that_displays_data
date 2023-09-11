@@ -1,3 +1,14 @@
-This is a service for getting contacts from a CRM service, saving them to/removing them from a database. 
-The connection to the service is made using acces token and login. 
-There is also a client that can send a delete request and receive a success/failure response from the server.
+Необходимо разработать демонстрационный сервис с простейшим интерфейсом, отображающий данные о заказе. Модель данных в формате JSON прилагается к заданию.	
+				
+Что нужно сделать:
+Развернуть локально PostgreSQL
+Создать свою БД
+Настроить своего пользователя
+Создать таблицы для хранения полученных данных
+Разработать сервис
+Реализовать подключение и подписку на канал в nats-streaming
+Полученные данные записывать в БД
+Реализовать кэширование полученных данных в сервисе (сохранять in memory)
+В случае падения сервиса необходимо восстанавливать кэш из БД
+Запустить http-сервер и выдавать данные по id из кэша
+Разработать простейший интерфейс отображения полученных данных по id заказа
