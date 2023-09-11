@@ -8,27 +8,32 @@ import (
 	"orders/internal/Nats"
 	server "orders/internal/server"
 	"orders/internal/config"
-	storage "orders/internal/storage"
+	"orders/internal/storage"
 )
-
-
 
 func main() {
 
-	
+	//хэш-таблица для in-memory database
+	storage.CashOrders = make(map[string][]byte) 
 	// config.GetConfig() возвращает структуру с информацией о переменных среды
 	conf, err := config.GetConfig()
 	if err != nil {
 		log.Fatal("error during config downloading: ", err)
 	}
-	
+
 	db, err := storage.ConnectToDb(conf)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	//Кеширование информации
+	err = storage.CacheUP(db)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	//Связь и подписка на Nats
-	sc, sub, err := Nats.GetSub(conf, db, &storage.CashOrders)
+	sc, sub, err := Nats.GetSub(conf, db)
 	if err != nil {
 		log.Println(err)
 	}
@@ -71,3 +76,4 @@ func main() {
 		}
 	}
 }
+
