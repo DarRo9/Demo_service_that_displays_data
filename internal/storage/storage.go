@@ -2,184 +2,94 @@ package storage
 
 import (
 	"database/sql"
+	"time"
 	_ "github.com/lib/pq"
 	"orders/internal/config"
-	model "orders/internal/model"
-	"context"
-	"fmt"
-	
 )
+
+type StructJsonWb struct {
+	OrderUid    string `json:"order_uid"`
+	TrackNumber string `json:"track_number"`
+	Entry       string `json:"entry"`
+	Delivery    struct {
+		Name    string `json:"name"`
+		Phone   string `json:"phone"`
+		Zip     string `json:"zip"`
+		City    string `json:"city"`
+		Address string `json:"address"`
+		Region  string `json:"region"`
+		Email   string `json:"email"`
+	} `json:"delivery"`
+	Payment struct {
+		Transaction  string `json:"transaction"`
+		RequestId    string `json:"request_id"`
+		Currency     string `json:"currency"`
+		Provider     string `json:"provider"`
+		Amount       int    `json:"amount"`
+		PaymentDt    int    `json:"payment_dt"`
+		Bank         string `json:"bank"`
+		DeliveryCost int    `json:"delivery_cost"`
+		GoodsTotal   int    `json:"goods_total"`
+		CustomFee    int    `json:"custom_fee"`
+	} `json:"payment"`
+	Items []struct {
+		ChrtId      int    `json:"chrt_id"`
+		TrackNumber string `json:"track_number"`
+		Price       int    `json:"price"`
+		Rid         string `json:"rid"`
+		Name        string `json:"name"`
+		Sale        int    `json:"sale"`
+		Size        string `json:"size"`
+		TotalPrice  int    `json:"total_price"`
+		NmId        int    `json:"nm_id"`
+		Brand       string `json:"brand"`
+		Status      int    `json:"status"`
+	} `json:"items"`
+	Locale            string    `json:"locale"`
+	InternalSignature string    `json:"internal_signature"`
+	CustomerId        string    `json:"customer_id"`
+	DeliveryService   string    `json:"delivery_service"`
+	Shardkey          string    `json:"shardkey"`
+	SmId              int       `json:"sm_id"`
+	DateCreated       time.Time `json:"date_created"`
+	OofShard          string    `json:"oof_shard"`
+}
+
+//хэш-таблица для кэширования информации
+var CashOrders map[string][]byte 
 
 type orders struct {
 	Uid  string
 	Info []byte
 }
 
-const createOrder = `INSERT INTO orders (order_uid, track_number, entry, locale, internal_signature, customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
-const createDelivery = `INSERT INTO	deliveries (order_uid, name, phone, zip, city, address, region, email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-const createPayment = `INSERT INTO payments	(order_uid, transaction, request_id, currency, provider, amount, payment_dt, bank, delivery_cost, goods_total, custom_fee) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
-const createItem = `INSERT INTO	items (order_uid, chrt_id, track_number, price, rid, name, sale, size, total_price, nm_id, brand, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+//Функция для кеширования информации
+func CacheUP(db *sql.DB) error {
 
-type Storage struct {
-	db *sql.DB
-}
-
-func NewStorage(db *sql.DB) *Storage {
-	return &Storage{
-		db: db,
-	}
-}
-
-//хэш-таблица для кэширования информации
-var CashOrders map[string]model.Order 
-
-func (p *Storage) CreateOrder(ctx context.Context, order *model.Order) (string, error) {
-	tx, err := p.db.Begin()
+	rows, err := db.Query("SELECT * from orders_table")
 	if err != nil {
-		return "", fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec(createOrder,
-		order.OrderUID, order.TrackNumber, order.Entry, order.Locale,
-		order.InternalSignature, order.CustomerID, order.DeliveryService, order.Shardkey,
-		order.SmID, order.DateCreated, order.OofShard)
-	if err != nil {
-		return "", fmt.Errorf("error when adding an entry to orders: %w", err)
+		return err
 	}
 
-	_, err = tx.Exec(createDelivery,
-		order.OrderUID, order.Delivery.Name, order.Delivery.Phone, order.Delivery.Zip,
-		order.Delivery.City, order.Delivery.Adress, order.Delivery.Region, order.Delivery.Email)
-	if err != nil {
-		return "", fmt.Errorf("error when adding an entry to deliveries: %w", err)
-	}
-
-	_, err = tx.Exec(createPayment,
-		order.OrderUID, order.Payment.Transaction, order.Payment.RequestID, order.Payment.Currency,
-		order.Payment.Provider, order.Payment.Amount, order.Payment.PaymentDT, order.Payment.Bank,
-		order.Payment.DeliveryCost, order.Payment.GoodsTotal, order.Payment.CustomFee)
-	if err != nil {
-		return "", fmt.Errorf("error when adding an entry to payments: %w", err)
-	}
-
-	for i := range order.Items {
-		_, err = tx.Exec(createItem,
-			order.OrderUID, order.Items[i].ChrtID, order.Items[i].TrackNumber, order.Items[i].Price,
-			order.Items[i].Rid, order.Items[i].Name, order.Items[i].Sale, order.Items[i].Size,
-			order.Items[i].TotalPrice, order.Items[i].NmID, order.Items[i].Brand, order.Items[i].Status)
-		if err != nil {
-			return "", fmt.Errorf("error when adding an entry to items: %w", err)
-		}
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		return "", fmt.Errorf("transaction confirmation error: %w", err)
-	}
-
-	return order.OrderUID, nil
-}
-
-func (p *Storage) RecoverCache(ctx context.Context, CashOrders *map[string]model.Order) error {
-	tx, err := p.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Загрузка заказов в кэш
-	rows, err := tx.Query(`SELECT * FROM orders`)
-	if err != nil {
-		return fmt.Errorf("request execution error (getOrdersQuery): %w", err)
-	}
-	defer rows.Close()
-
+	var items []orders
 	for rows.Next() {
-		var order model.Order
-		err := rows.Scan(&order.OrderUID, &order.TrackNumber, &order.Entry, &order.Locale, &order.InternalSignature,
-			&order.CustomerID, &order.DeliveryService, &order.Shardkey, &order.SmID, &order.DateCreated,
-			&order.OofShard)
+		post := orders{}
+		err = rows.Scan(&post.Uid, &post.Info)
 		if err != nil {
-			return fmt.Errorf("error when scanning orders lines: %w", err)
+			return err
 		}
-		if _, ok := (*CashOrders)[order.OrderUID]; !ok {
-			(*CashOrders)[order.OrderUID] = order
-		}
+		items = append(items, post)
 	}
-
-	// Загрузка доставок в кэш
-	rows, err = tx.Query(`SELECT * FROM deliveries`)
+	err = rows.Close()
 	if err != nil {
-		return fmt.Errorf("request execution error (getDeliveiesQuery): %w", err)
+		return err
 	}
-	defer rows.Close()
+	for _, i := range items {
+		CashOrders[i.Uid] = i.Info
 
-	for rows.Next() {
-		var delivery model.Delivery
-		var orderUID string
-		err := rows.Scan(&orderUID, &delivery.Name, &delivery.Phone, &delivery.Zip, &delivery.City, &delivery.Adress,
-			&delivery.Region, &delivery.Email)
-		if err != nil {
-			return fmt.Errorf("error when scanning orders lines: %w", err)
-		}
-		if val, ok := (*CashOrders)[orderUID]; ok {
-			val.Delivery = delivery
-			(*CashOrders)[orderUID] = val
-		}
 	}
-
-	// Загрузка платежей в кэш
-	rows, err = tx.Query(`SELECT * FROM payments`)
-	if err != nil {
-		return fmt.Errorf("request execution error (getPaymentsQuery): %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var payment model.Payment
-		var orderUID string
-		err := rows.Scan(&orderUID, &payment.Transaction, &payment.RequestID, &payment.Currency, &payment.Provider,
-			&payment.Amount, &payment.PaymentDT, &payment.Bank, &payment.DeliveryCost, &payment.GoodsTotal,
-			&payment.CustomFee)
-		if err != nil {
-			return fmt.Errorf("error when scanning orders lines: %w", err)
-		}
-		if val, ok := (*CashOrders)[orderUID]; ok {
-			val.Payment = payment
-			(*CashOrders)[orderUID] = val
-		}
-	}
-
-	// Загрузка элементов в кэш
-	rows, err = tx.Query(`SELECT * FROM items`)
-	if err != nil {
-		return fmt.Errorf("request execution error (getItemsQuery): %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var item model.Item
-		var orderUID string
-		err := rows.Scan(&orderUID, &item.ChrtID, &item.TrackNumber, &item.Price, &item.Rid, &item.Name, &item.Sale,
-			&item.Size, &item.TotalPrice, &item.NmID, &item.Brand, &item.Status)
-		if err != nil {
-			return fmt.Errorf("error when scanning orders lines: %w", err)
-		}
-		if val, ok := (*CashOrders)[orderUID]; ok {
-			val.Items = append(val.Items, item)
-			(*CashOrders)[orderUID] = val
-		}
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		return fmt.Errorf("transaction confirmation error: %w", err)
-	}
-
-	fmt.Println("Data has been successfully uploaded from the database to the cache")
-
 	return nil
+
 }
 
 func ConnectToDb(conf *config.Config) (*sql.DB, error) {
@@ -200,28 +110,13 @@ func ConnectToDb(conf *config.Config) (*sql.DB, error) {
 	return db, nil
 }
 
-func Insert(uid, order model.Order{}, db *sql.DB) error {
+func Insert(uid, jsonOrder string, db *sql.DB) error {
 	_, err := db.Exec(
-		"INSERT INTO orders (order_uid, track_number, entry, locale, internal_signature, customer_id, delivery_service,	shardkey, sm_id, date_created, oof_shard) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)", order.OrderUID, orderTrackNumber       string   `json:"track_number"`
-		Entry             string   `json:"entry"`
-		Delivery          Delivery `json:"delivery"`
-		Payment           Payment  `json:"payment"`
-		Items             []Item   `json:"items"`
-		Locale            string   `json:"locale"`
-		InternalSignature string   `json:"internal_signature"`
-		CustomerID        string   `json:"customer_id"`
-		DeliveryService   string   `json:"delivery_service"`
-		Shardkey          string   `json:"shardkey"`
-		SmID              int      `json:"sm_id"`
-		DateCreated       string   `json:"date_created"`
-		OofShard )
+		"INSERT INTO orders_table (uid, json_order) VALUES ($1, $2 )", uid, jsonOrder)
 	if err != nil {
 		return err
 	}
 	return nil
 }
-
-
-
 
 
