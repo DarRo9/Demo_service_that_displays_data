@@ -8,8 +8,7 @@ import (
 	"log"
 	"net/http"
 	"orders/internal/config"
-	storage "orders/internal/storage"
-	model "orders/internal/model"
+	"orders/internal/storage"
 )
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -23,18 +22,15 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 
-	tmpl := template.Must(template.ParseFiles("Templates/inf.html"))
-	var str model.Order
+	tmpl := template.Must(template.ParseFiles("Templates/order.html"))
+	var str storage.StructJsonWb
 
 	key := r.FormValue("q")
 
 	if key != "" {
-		res, ok := (storage.CashOrders)[key]
-		fmt.Print(res)
+		res, ok := storage.CashOrders[key]
 		if ok {
-			str2, _ := json.Marshal((storage.CashOrders)[key])
-			fmt.Print(str2)
-			err = json.Unmarshal(str2, &str)
+			err = json.Unmarshal(res, &str)
 			if err != nil {
 				log.Println(err)
 			}
