@@ -7,9 +7,6 @@ import (
 	"log"
 	"orders/internal/config"
 	"orders/internal/storage"
-	model "orders/internal/model"
-	"context"
-	"fmt"
 )
 
 func initConn(conf *config.Config) (stan.Conn, error) {
@@ -21,9 +18,9 @@ func initConn(conf *config.Config) (stan.Conn, error) {
 	return sc, nil
 }
 
-func initSub(conf *config.Config, sc stan.Conn, db *sql.DB, CashOrders *map[string]model.Order) (stan.Subscription, error) {
-	//Получение информации в формате json, парсинг в структуру, добавление в таблицы
-	var str = model.Order{}
+func initSub(conf *config.Config, sc stan.Conn, db *sql.DB) (stan.Subscription, error) {
+
+	var str storage.StructJsonWb
 
 	sub, err := sc.Subscribe(conf.Subject, func(msg *stan.Msg) {
 		log.Printf("Received a message: %s\n", string(msg.Data))
@@ -31,23 +28,8 @@ func initSub(conf *config.Config, sc stan.Conn, db *sql.DB, CashOrders *map[stri
 			log.Println(err)
 			return
 		}
-		str2, _ := json.Marshal((*CashOrders)[str.OrderUID])
-		str2 = msg.Data
-		fmt.Print(str2)
-		err := storage.Insert(str.OrderUID, string(msg.Data), db)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		ctx := context.Background()
-		var order = &model.Order{}
-		db2 := storage.NewStorage(db)
-		err = db2.RecoverCache(ctx, CashOrders)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		_, err = db2.CreateOrder(ctx, order)
+		storage.CashOrders[str.OrderUid] = msg.Data
+		err := storage.Insert(str.OrderUid, string(msg.Data), db)
 		if err != nil {
 			log.Println(err)
 			return
@@ -57,16 +39,15 @@ func initSub(conf *config.Config, sc stan.Conn, db *sql.DB, CashOrders *map[stri
 	if err != nil {
 		return nil, err
 	}
-	
 	return sub, nil
 }
 
-func GetSub(conf *config.Config, db *sql.DB, CashOrders *map[string]model.Order) (stan.Conn, stan.Subscription, error) {
+func GetSub(conf *config.Config, db *sql.DB) (stan.Conn, stan.Subscription, error) {
 	sc, err := initConn(conf)
 	if err != nil {
 		return nil, nil, err
 	}
-	sub, err := initSub(conf, sc, db, CashOrders)
+	sub, err := initSub(conf, sc, db)
 	if err != nil {
 		if err = sc.Close(); err != nil {
 			log.Println(err)
@@ -75,3 +56,4 @@ func GetSub(conf *config.Config, db *sql.DB, CashOrders *map[string]model.Order)
 	}
 	return sc, sub, nil
 }
+
